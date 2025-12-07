@@ -98,6 +98,17 @@
                 @php
                     set_time_limit(0);
                     try {
+                        // Backup current session to survive Laravel version change
+                        $sessionId = session()->getId();
+                        $sessionPath = storage_path('framework/sessions/' . $sessionId);
+                        $sessionBackupPath = storage_path('framework/sessions/_backup_' . $sessionId);
+                        $sessionBackedUp = false;
+                        
+                        if (file_exists($sessionPath)) {
+                            copy($sessionPath, $sessionBackupPath);
+                            $sessionBackedUp = true;
+                        }
+                        
                         // Determine the latest version and file URL
                         $latestVersion = $isBeta ? $Vbeta_git : $Vgit;
                         $fileUrl = $isBeta ? $betaServer . $latestVersion . '.zip' : $updateServer . $latestVersion . '.zip';
@@ -129,6 +140,12 @@
                         }
 
                         $zip->close();
+                        
+                        // Restore backed up session after file replacement
+                        if ($sessionBackedUp && file_exists($sessionBackupPath)) {
+                            copy($sessionBackupPath, $sessionPath);
+                            unlink($sessionBackupPath);
+                        }
 
                         // Delete the ZIP file after extraction
                         if (!unlink($zipPath)) {
