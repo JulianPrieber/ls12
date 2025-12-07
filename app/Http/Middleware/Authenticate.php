@@ -14,7 +14,7 @@ class Authenticate extends Middleware
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  array  $guards
-     * @return void
+     * @return mixed
      */
     protected function authenticate($request, array $guards)
     {
