@@ -17,23 +17,15 @@
             $preUpdateServer = $betaPreUpdateServer;
         }
 
-        // Re-authenticate user if session was lost during update
-        $updateAuthFile = storage_path('framework/update_auth_user.txt');
-        if (file_exists($updateAuthFile) && !auth()->check()) {
+        // Re-authenticate user if session was lost during update using cache
+        if (!auth()->check()) {
             try {
-                // Only use the file if it's less than 2 hours old to prevent indefinite persistence
-                $fileAge = time() - filemtime($updateAuthFile);
-                if ($fileAge < 7200) { // 2 hours = 7200 seconds
-                    $userId = (int) file_get_contents($updateAuthFile);
-                    if ($userId > 0) {
-                        $user = App\Models\User::find($userId);
-                        if ($user && $user->role === 'admin') {
-                            Auth::login($user);
-                        }
+                $updateUserId = Cache::get('update_auth_user_id');
+                if ($updateUserId) {
+                    $user = App\Models\User::find($updateUserId);
+                    if ($user && $user->role === 'admin') {
+                        Auth::login($user);
                     }
-                } else {
-                    // File is too old, remove it
-                    @unlink($updateAuthFile);
                 }
             } catch (Exception $e) {
                 // If re-authentication fails, continue without it
@@ -54,11 +46,12 @@
         @if ((auth()->check() && auth()->user()->role == 'admin' && $Vgit > $Vlocal) || $isBeta)
             @if (empty($_SERVER['QUERY_STRING']))
                 @php
-                    // Store authenticated admin user ID for session persistence during update
+                    // Store authenticated admin user ID in cache for session persistence during update
+                    // Cache is PHP-internal and more secure than file storage
                     if (auth()->check() && auth()->user()->role === 'admin') {
                         try {
-                            $updateAuthFile = storage_path('framework/update_auth_user.txt');
-                            file_put_contents($updateAuthFile, auth()->user()->id);
+                            // Store for 2 hours (7200 seconds)
+                            Cache::put('update_auth_user_id', auth()->user()->id, 7200);
                         } catch (Exception $e) {
                             // If storing fails, continue anyway - worst case user might need to re-login
                         }
@@ -293,14 +286,11 @@
 
         @if ($_SERVER['QUERY_STRING'] === 'success')
             @php
-                // Clean up stored authentication file after successful update
-                $updateAuthFile = storage_path('framework/update_auth_user.txt');
-                if (file_exists($updateAuthFile)) {
-                    try {
-                        unlink($updateAuthFile);
-                    } catch (Exception $e) {
-                        // Ignore cleanup errors
-                    }
+                // Clean up cache after successful update
+                try {
+                    Cache::forget('update_auth_user_id');
+                } catch (Exception $e) {
+                    // Ignore cleanup errors
                 }
             @endphp
             <div class="logo-container fadein">
@@ -339,14 +329,11 @@
             @php
                 EnvEditor::editKey('MAINTENANCE_MODE', false);
                 
-                // Clean up stored authentication file on error
-                $updateAuthFile = storage_path('framework/update_auth_user.txt');
-                if (file_exists($updateAuthFile)) {
-                    try {
-                        unlink($updateAuthFile);
-                    } catch (Exception $e) {
-                        // Ignore cleanup errors
-                    }
+                // Clean up cache on error
+                try {
+                    Cache::forget('update_auth_user_id');
+                } catch (Exception $e) {
+                    // Ignore cleanup errors
                 }
             @endphp
 
