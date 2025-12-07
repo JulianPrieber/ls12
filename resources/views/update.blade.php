@@ -28,8 +28,37 @@
     @endphp
 
     <div class="container">
-        @if ((auth()->user()->role == 'admin' && $Vgit > $Vlocal) || $isBeta)
+        @if ((auth()->check() && auth()->user()->role == 'admin' && $Vgit > $Vlocal) || $isBeta)
             @if (empty($_SERVER['QUERY_STRING']))
+                @php
+                    // Create a signed authentication token for session persistence during update
+                    // This survives Laravel version changes by using a cookie-based approach
+                    if (auth()->check() && auth()->user()->role === 'admin') {
+                        try {
+                            $userId = auth()->user()->id;
+                            $timestamp = time();
+                            
+                            // Create a signed token: user_id:timestamp:hash
+                            $hash = hash_hmac('sha256', $userId . ':' . $timestamp, config('app.key'));
+                            $tokenData = $userId . ':' . $timestamp . ':' . $hash;
+                            $token = base64_encode($tokenData);
+                            
+                            // Set cookie that will survive the Laravel version change
+                            // Cookie lasts 2 hours and is HTTP only for security
+                            setcookie(
+                                'update_auth_token',
+                                $token,
+                                time() + 7200, // 2 hours
+                                '/',
+                                '',
+                                !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+                                true // HTTP only
+                            );
+                        } catch (Exception $e) {
+                            // If token creation fails, continue anyway
+                        }
+                    }
+                @endphp
                 <div class="logo-container fadein">
                     <img class="logo-img" src="{{ asset('assets/linkstack/images/logo.svg') }}" alt="Logo">
                 </div>
@@ -69,6 +98,26 @@
                 @php
                     set_time_limit(0);
                     try {
+                        // Backup current session to survive Laravel version change
+                        $sessionId = session()->getId();
+                        
+                        // Validate session ID format (Laravel uses alphanumeric session IDs)
+                        if (!preg_match('/^[a-zA-Z0-9]+$/', $sessionId)) {
+                            throw new Exception('Invalid session ID format');
+                        }
+                        
+                        $sessionPath = storage_path('framework/sessions/' . $sessionId);
+                        $sessionBackupPath = storage_path('framework/sessions/_backup_' . $sessionId);
+                        $sessionBackedUp = false;
+                        
+                        if (file_exists($sessionPath)) {
+                            if (!copy($sessionPath, $sessionBackupPath)) {
+                                Log::warning('Failed to backup session file');
+                            } else {
+                                $sessionBackedUp = true;
+                            }
+                        }
+                        
                         // Determine the latest version and file URL
                         $latestVersion = $isBeta ? $Vbeta_git : $Vgit;
                         $fileUrl = $isBeta ? $betaServer . $latestVersion . '.zip' : $updateServer . $latestVersion . '.zip';
@@ -100,6 +149,18 @@
                         }
 
                         $zip->close();
+                        
+                        // Restore backed up session after file replacement
+                        if ($sessionBackedUp && file_exists($sessionBackupPath)) {
+                            if (copy($sessionBackupPath, $sessionPath)) {
+                                // Successfully restored, clean up backup
+                                if (!unlink($sessionBackupPath)) {
+                                    Log::warning('Failed to delete session backup file');
+                                }
+                            } else {
+                                Log::warning('Failed to restore session file from backup');
+                            }
+                        }
 
                         // Delete the ZIP file after extraction
                         if (!unlink($zipPath)) {
@@ -258,6 +319,14 @@
         @endif
 
         @if ($_SERVER['QUERY_STRING'] === 'success')
+            @php
+                // Clean up authentication cookie after successful update
+                try {
+                    setcookie('update_auth_token', '', time() - 3600, '/');
+                } catch (Exception $e) {
+                    // Ignore cleanup errors
+                }
+            @endphp
             <div class="logo-container fadein">
                 <img class="logo-img" src="{{ asset('assets/linkstack/images/logo.svg') }}" alt="Logo">
             </div>
@@ -291,7 +360,16 @@
         @endif
 
         @if ($_SERVER['QUERY_STRING'] === 'error')
-            <?php EnvEditor::editKey('MAINTENANCE_MODE', false); ?>
+            @php
+                EnvEditor::editKey('MAINTENANCE_MODE', false);
+                
+                // Clean up authentication cookie on error
+                try {
+                    setcookie('update_auth_token', '', time() - 3600, '/');
+                } catch (Exception $e) {
+                    // Ignore cleanup errors
+                }
+            @endphp
 
             <div class="logo-container fadein">
                 <img class="logo-img" src="{{ asset('assets/linkstack/images/logo.svg') }}" alt="Logo">
