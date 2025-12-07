@@ -17,6 +17,22 @@
             $preUpdateServer = $betaPreUpdateServer;
         }
 
+        // Re-authenticate user if session was lost during update
+        $updateAuthFile = storage_path('framework/update_auth_user.txt');
+        if (file_exists($updateAuthFile) && !auth()->check()) {
+            try {
+                $userId = (int) file_get_contents($updateAuthFile);
+                if ($userId > 0) {
+                    $user = App\Models\User::find($userId);
+                    if ($user && $user->role === 'admin') {
+                        Auth::login($user);
+                    }
+                }
+            } catch (Exception $e) {
+                // If re-authentication fails, continue without it
+            }
+        }
+
         try {
             $Vbeta = trim(Http::timeout(5)->get($betaServer . 'vbeta.json')->body());
             $Vbeta_git = trim(Http::timeout(5)->get($betaServer . 'version.json')->body());
@@ -30,6 +46,13 @@
     <div class="container">
         @if ((auth()->user()->role == 'admin' && $Vgit > $Vlocal) || $isBeta)
             @if (empty($_SERVER['QUERY_STRING']))
+                @php
+                    // Store authenticated admin user ID for session persistence during update
+                    if (auth()->check() && auth()->user()->role === 'admin') {
+                        $updateAuthFile = storage_path('framework/update_auth_user.txt');
+                        file_put_contents($updateAuthFile, auth()->user()->id);
+                    }
+                @endphp
                 <div class="logo-container fadein">
                     <img class="logo-img" src="{{ asset('assets/linkstack/images/logo.svg') }}" alt="Logo">
                 </div>
@@ -258,6 +281,17 @@
         @endif
 
         @if ($_SERVER['QUERY_STRING'] === 'success')
+            @php
+                // Clean up stored authentication file after successful update
+                $updateAuthFile = storage_path('framework/update_auth_user.txt');
+                if (file_exists($updateAuthFile)) {
+                    try {
+                        unlink($updateAuthFile);
+                    } catch (Exception $e) {
+                        // Ignore cleanup errors
+                    }
+                }
+            @endphp
             <div class="logo-container fadein">
                 <img class="logo-img" src="{{ asset('assets/linkstack/images/logo.svg') }}" alt="Logo">
             </div>
@@ -291,7 +325,19 @@
         @endif
 
         @if ($_SERVER['QUERY_STRING'] === 'error')
-            <?php EnvEditor::editKey('MAINTENANCE_MODE', false); ?>
+            @php
+                EnvEditor::editKey('MAINTENANCE_MODE', false);
+                
+                // Clean up stored authentication file on error
+                $updateAuthFile = storage_path('framework/update_auth_user.txt');
+                if (file_exists($updateAuthFile)) {
+                    try {
+                        unlink($updateAuthFile);
+                    } catch (Exception $e) {
+                        // Ignore cleanup errors
+                    }
+                }
+            @endphp
 
             <div class="logo-container fadein">
                 <img class="logo-img" src="{{ asset('assets/linkstack/images/logo.svg') }}" alt="Logo">
