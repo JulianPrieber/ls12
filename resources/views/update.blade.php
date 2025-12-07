@@ -21,12 +21,19 @@
         $updateAuthFile = storage_path('framework/update_auth_user.txt');
         if (file_exists($updateAuthFile) && !auth()->check()) {
             try {
-                $userId = (int) file_get_contents($updateAuthFile);
-                if ($userId > 0) {
-                    $user = App\Models\User::find($userId);
-                    if ($user && $user->role === 'admin') {
-                        Auth::login($user);
+                // Only use the file if it's less than 2 hours old to prevent indefinite persistence
+                $fileAge = time() - filemtime($updateAuthFile);
+                if ($fileAge < 7200) { // 2 hours = 7200 seconds
+                    $userId = (int) file_get_contents($updateAuthFile);
+                    if ($userId > 0) {
+                        $user = App\Models\User::find($userId);
+                        if ($user && $user->role === 'admin') {
+                            Auth::login($user);
+                        }
                     }
+                } else {
+                    // File is too old, remove it
+                    @unlink($updateAuthFile);
                 }
             } catch (Exception $e) {
                 // If re-authentication fails, continue without it
@@ -44,13 +51,17 @@
     @endphp
 
     <div class="container">
-        @if ((auth()->user()->role == 'admin' && $Vgit > $Vlocal) || $isBeta)
+        @if ((auth()->check() && auth()->user()->role == 'admin' && $Vgit > $Vlocal) || $isBeta)
             @if (empty($_SERVER['QUERY_STRING']))
                 @php
                     // Store authenticated admin user ID for session persistence during update
                     if (auth()->check() && auth()->user()->role === 'admin') {
-                        $updateAuthFile = storage_path('framework/update_auth_user.txt');
-                        file_put_contents($updateAuthFile, auth()->user()->id);
+                        try {
+                            $updateAuthFile = storage_path('framework/update_auth_user.txt');
+                            file_put_contents($updateAuthFile, auth()->user()->id);
+                        } catch (Exception $e) {
+                            // If storing fails, continue anyway - worst case user might need to re-login
+                        }
                     }
                 @endphp
                 <div class="logo-container fadein">
