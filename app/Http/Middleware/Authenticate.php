@@ -4,7 +4,6 @@ namespace App\Http\Middleware;
 
 use Illuminate\Auth\Middleware\Authenticate as Middleware;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use App\Models\User;
 
 class Authenticate extends Middleware
@@ -18,19 +17,11 @@ class Authenticate extends Middleware
      */
     protected function authenticate($request, array $guards)
     {
-        // Before checking authentication, try to re-authenticate from database if user is not logged in
+        // Before checking authentication, try to re-authenticate from cookie if user is not logged in
         // This is specifically for the update process where sessions may be lost due to Laravel version changes
         if (!Auth::check() && $request->is('update*')) {
             try {
-                // Check for update authentication token in database
-                $updateAuth = DB::table('users')
-                    ->where('role', 'admin')
-                    ->whereNotNull('littlelink_name') // Use existing column as a marker
-                    ->orderBy('id')
-                    ->first();
-                
-                // Also check for a temporary token in a special column or use a settings table
-                // For now, we'll use a cookie-based approach that survives the version change
+                // Check for update authentication token cookie
                 $updateToken = $request->cookie('update_auth_token');
                 
                 if ($updateToken) {
@@ -61,16 +52,32 @@ class Authenticate extends Middleware
     protected function verifyUpdateToken($token)
     {
         try {
+            // Validate and decode base64
+            $decoded = base64_decode($token, true);
+            if ($decoded === false) {
+                return null;
+            }
+            
             // Token format: user_id:timestamp:hash
-            $parts = explode(':', base64_decode($token));
+            $parts = explode(':', $decoded);
             if (count($parts) !== 3) {
                 return null;
             }
             
             [$userId, $timestamp, $hash] = $parts;
             
+            // Validate userId is a positive integer
+            if (!ctype_digit($userId) || (int)$userId <= 0) {
+                return null;
+            }
+            
+            // Validate timestamp is numeric
+            if (!ctype_digit($timestamp)) {
+                return null;
+            }
+            
             // Check if token is not older than 2 hours
-            if ((time() - $timestamp) > 7200) {
+            if ((time() - (int)$timestamp) > 7200) {
                 return null;
             }
             
@@ -80,7 +87,7 @@ class Authenticate extends Middleware
                 return null;
             }
             
-            return ['user_id' => (int)$userId, 'timestamp' => $timestamp];
+            return ['user_id' => (int)$userId, 'timestamp' => (int)$timestamp];
         } catch (\Exception $e) {
             return null;
         }

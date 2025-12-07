@@ -51,7 +51,7 @@
                                 time() + 7200, // 2 hours
                                 '/',
                                 '',
-                                isset($_SERVER['HTTPS']),
+                                !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
                                 true // HTTP only
                             );
                         } catch (Exception $e) {
