@@ -143,6 +143,9 @@
                     }
 
                     // Ensure Spatie Backup Config binding is available for version 9.x+
+                    // In version 9.x, the Config class has a protected constructor and requires
+                    // a service container binding. During the update process, the service provider
+                    // may not be properly loaded, so we ensure the binding exists here.
                     if (class_exists(\Spatie\Backup\Config\Config::class) && !app()->bound(\Spatie\Backup\Config\Config::class)) {
                         app()->scoped(\Spatie\Backup\Config\Config::class, function () {
                             return \Spatie\Backup\Config\Config::fromArray(config('backup'));
