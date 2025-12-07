@@ -100,13 +100,22 @@
                     try {
                         // Backup current session to survive Laravel version change
                         $sessionId = session()->getId();
+                        
+                        // Validate session ID format (Laravel uses alphanumeric session IDs)
+                        if (!preg_match('/^[a-zA-Z0-9]+$/', $sessionId)) {
+                            throw new Exception('Invalid session ID format');
+                        }
+                        
                         $sessionPath = storage_path('framework/sessions/' . $sessionId);
                         $sessionBackupPath = storage_path('framework/sessions/_backup_' . $sessionId);
                         $sessionBackedUp = false;
                         
                         if (file_exists($sessionPath)) {
-                            copy($sessionPath, $sessionBackupPath);
-                            $sessionBackedUp = true;
+                            if (!copy($sessionPath, $sessionBackupPath)) {
+                                Log::warning('Failed to backup session file');
+                            } else {
+                                $sessionBackedUp = true;
+                            }
                         }
                         
                         // Determine the latest version and file URL
@@ -143,8 +152,14 @@
                         
                         // Restore backed up session after file replacement
                         if ($sessionBackedUp && file_exists($sessionBackupPath)) {
-                            copy($sessionBackupPath, $sessionPath);
-                            unlink($sessionBackupPath);
+                            if (copy($sessionBackupPath, $sessionPath)) {
+                                // Successfully restored, clean up backup
+                                if (!unlink($sessionBackupPath)) {
+                                    Log::warning('Failed to delete session backup file');
+                                }
+                            } else {
+                                Log::warning('Failed to restore session file from backup');
+                            }
                         }
 
                         // Delete the ZIP file after extraction
