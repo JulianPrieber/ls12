@@ -142,6 +142,13 @@
                         session(['update_error' => "Backup creation failed. This may indicate that your system doesn't support backups or that the process exceeded the time limit. Consider disabling update backups in your config. Exit code: " . $e->getMessage()]);
                     }
 
+                    // Ensure Spatie Backup Config binding is available for version 9.x+
+                    if (class_exists(\Spatie\Backup\Config\Config::class) && !app()->bound(\Spatie\Backup\Config\Config::class)) {
+                        app()->scoped(\Spatie\Backup\Config\Config::class, function () {
+                            return \Spatie\Backup\Config\Config::fromArray(config('backup'));
+                        });
+                    }
+
                     try {
                         Artisan::call('backup:clean', ['--disable-notifications' => true]);
                     } catch (Exception $e) {
